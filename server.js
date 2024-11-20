@@ -1,61 +1,62 @@
 const express = require('express');
-const app = express();
-const http = require('http').createServer(app);
-const io = require('socket.io')(http, {
-    maxHttpBufferSize: 1e8
-});
+const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
 const path = require('path');
+const bodyParser = require('body-parser');
+// require('dotenv').config();
 
-app.use(express.static(path.join(__dirname, 'public')));
+const app = express();
+const PORT = process.env.PORT || 3000;
 
-const users = new Map(); // Store username mappings
+// Middleware
+app.use(bodyParser.json());
+app.use(express.static('public'));
 
-io.on('connection', (socket) => {
-    console.log('A user connected');
-
-    socket.on('user joined', (username) => {
-        users.set(socket.id, username);
-        io.emit('user joined', {
-            userId: socket.id,
-            username: username,
-            timestamp: new Date(),
-            message: `${username} joined the chat`
-        });
-    });
-
-    socket.on('chat message', (data) => {
-        io.emit('chat message', {
-            message: data,
-            userId: socket.id,
-            username: users.get(socket.id),
-            timestamp: new Date()
-        });
-    });
-
-    socket.on('image message', (data) => {
-        io.emit('image message', {
-            image: data,
-            userId: socket.id,
-            username: users.get(socket.id),
-            timestamp: new Date()
-        });
-    });
-
-    socket.on('disconnect', () => {
-        const username = users.get(socket.id);
-        if (username) {
-            io.emit('user left', {
-                userId: socket.id,
-                username: username,
-                timestamp: new Date(),
-                message: `${username} left the chat`
-            });
-            users.delete(socket.id);
-        }
-    });
+// MongoDB Connection
+mongoose.connect('mongodb+srv://aseemmishra3184:Aseem%402002@cluster0.c5kab.mongodb.net/your_database_name?retryWrites=true&w=majority', {
+  useNewUrlParser: true,
+  useUnifiedTopology: true
+  
 });
 
-const PORT = process.env.PORT || 5000;
-http.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+// User Schema
+const userSchema = new mongoose.Schema({
+  username: { type: String, unique: true, required: true },
+  password: { type: String, required: true }
+});
+
+const User = mongoose.model('User', userSchema);
+
+// Routes
+app.post('/api/signup', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const user = new User({ username, password: hashedPassword });
+    await user.save();
+    res.status(201).json({ message: 'User created successfully' });
+  } catch (error) {
+    res.status(400).json({ error: 'Username already exists' });
+  }
+});
+
+app.post('/api/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    const user = await User.findOne({ username });
+    if (!user) {
+      return res.status(400).json({ error: 'User not found' });
+    }
+    const validPassword = await bcrypt.compare(password, user.password);
+    if (!validPassword) {
+      return res.status(400).json({ error: 'Invalid password' });
+    }
+    res.json({ message: 'Logged in successfully' });
+  } catch (error) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
